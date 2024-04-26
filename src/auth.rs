@@ -1,4 +1,5 @@
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome, Request};
 pub struct BasicAuth {
@@ -17,8 +18,8 @@ impl BasicAuth {
         Self::from_base64_encoded(split[1])
     }
     fn from_base64_encoded(base64_string: &str) -> Option<BasicAuth> {
-        let decoded = STANDARD.decode(base64_string).unwrap();
-        let decoded_str = std::str::from_utf8(&decoded).unwrap();
+        let decoded = STANDARD.decode(base64_string).ok()?;
+        let decoded_str = std::str::from_utf8(&decoded).ok()?;
         let split = decoded_str.split(':').collect::<Vec<_>>();
         match split.len() {
             2 => {

@@ -6,83 +6,81 @@ extern crate diesel;
 
 mod auth;
 mod models;
+mod repositories;
 mod schema;
 
+use crate::models::NewRustacean;
 use auth::BasicAuth;
-use diesel::{query_dsl::methods::LimitDsl, ExpressionMethods, QueryDsl, RunQueryDsl};
-use models::{NewRustacean, Rustaceans};
+use repositories::RustaceansRepository;
 use rocket::{
-    response::status,
+    http::Status,
+    response::status::{self, Custom},
     serde::json::{json, Json, Value},
 };
-use schema::rustaceans;
-
 #[database("sqlite")]
 struct DbConn(diesel::SqliteConnection);
-
 #[get("/rustaceans")]
-async fn get_rustacean(_auth: BasicAuth, db: DbConn) -> Value {
+async fn get_rustacean(__rocket_auth: BasicAuth, db: DbConn) -> Result<Value, Custom<Value>> {
     db.run(|conn| {
-        let result = LimitDsl::limit(rustaceans::table, 100)
-            .load::<Rustaceans>(conn)
-            .expect("Failed to read rustaceans entries!");
-        json!(result)
+        RustaceansRepository::find_multiple(conn, 100)
+            .map(|rustacean| json!(rustacean))
+            .map_err(|err| Custom(Status::InternalServerError, json!(err.to_string())))
     })
     .await
 }
 
 #[get("/rustaceans/<id>")]
-async fn view_rustacean(id: i32, _auth: BasicAuth, db: DbConn) -> Value {
+async fn view_rustacean(
+    id: i32,
+    _rocket_auth: BasicAuth,
+    db: DbConn,
+) -> Result<Value, Custom<Value>> {
     db.run(move |conn| {
-        // Use `find_by` with Nullable for nullable id comparison
-        let result = rustaceans::table
-            .filter(rustaceans::id.eq(Some(id)))
-            .first::<Rustaceans>(conn)
-            .expect("Something went wrong!");
-        json!(result)
+        RustaceansRepository::find(conn, id)
+            .map(|rustacean| json!(rustacean))
+            .map_err(|err| Custom(Status::InternalServerError, json!(err.to_string())))
     })
     .await
 }
 
 #[post("/rustaceans", format = "json", data = "<new_rustacean>")]
 async fn create_rustacean(
-    _auth: BasicAuth,
+    __rocket_auth: BasicAuth,
     db: DbConn,
     new_rustacean: Json<NewRustacean>,
-) -> Value {
+) -> Result<Value, Custom<Value>> {
     db.run(|conn| {
-        let result = diesel::insert_into(rustaceans::table)
-            .values(new_rustacean.into_inner())
-            .execute(conn)
-            .expect("error adding new rustacean!");
-        json!(result)
+        RustaceansRepository::create(conn, new_rustacean.into_inner())
+            .map(|rustacean| json!(rustacean))
+            .map_err(|err| Custom(Status::InternalServerError, json!(err.to_string())))
     })
     .await
 }
 
 #[put("/rustaceans/<id>", format = "json", data = "<rustacean>")]
 async fn update_rustacean(
-    _auth: BasicAuth,
+    __rocket_auth: BasicAuth,
     id: i32,
     rustacean: Json<models::FormRustaceans>,
     db: DbConn,
-) -> Value {
+) -> Result<Value, Custom<Value>> {
     db.run(move |conn| {
-        let res = diesel::update(rustaceans::table.filter(rustaceans::id.eq(Some(id))))
-            .set(rustacean.into_inner())
-            .execute(conn)
-            .expect("Error while updating user!");
-        json!(res)
+        RustaceansRepository::update(conn, rustacean.into_inner(), id)
+            .map(|rustacean| json!(rustacean))
+            .map_err(|err| Custom(Status::InternalServerError, json!(err.to_string())))
     })
     .await
 }
 #[delete("/rustaceans/<id>")]
-async fn delete_rustacean(_auth: BasicAuth, id: i32, db: DbConn) -> status::NoContent {
+async fn delete_rustacean(
+    __rocket_auth: BasicAuth,
+    id: i32,
+    db: DbConn,
+) -> Result<status::NoContent, Custom<Value>> {
     db.run(move |conn| {
-        diesel::delete(rustaceans::table.filter(rustaceans::id.eq(Some(id))))
-            .execute(conn)
-            .expect("Error deleting rustacean!");
-        status::NoContent
+        RustaceansRepository::delete(conn, id)
+            .map(|_| status::NoContent)
+            .map_err(|err| Custom(Status::InternalServerError, json!(err.to_string())))
     })
     .await
 }
@@ -91,6 +89,21 @@ async fn delete_rustacean(_auth: BasicAuth, id: i32, db: DbConn) -> status::NoCo
 fn not_found() -> Value {
     json!("Not Found")
 }
+
+// async fn run_db_migrations(rocket: Rocket<Build>) -> Result<Rocket<Build>, Rocket<Build>> {
+//     DbConn::get_one(&rocket)
+//         .await
+//         .expect("failed to retrieve database connection")
+//         .run(|conn| match embedded_migrations::run(conn) {
+//             Ok(_) => Ok(rocket),
+//             Err(e) => {
+//                 error!("Failed to run database migrations: {:?}", e);
+//                 Err(rocket)
+//             }
+//         })
+//         .await
+// }
+
 #[rocket::main]
 async fn main() {
     let _ = rocket::build()
